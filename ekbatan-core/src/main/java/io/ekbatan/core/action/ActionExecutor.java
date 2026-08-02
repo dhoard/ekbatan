@@ -21,6 +21,7 @@ import java.security.Principal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -172,10 +173,14 @@ public class ActionExecutor {
                         final R performResult;
                         try (var _ = performSpan.makeCurrent()) {
                             performResult = action.runIn(plan, principal, params);
-                        } catch (Exception e) {
-                            performSpan.setStatus(StatusCode.ERROR, e.getMessage());
-                            performSpan.recordException(e);
-                            throw e;
+                        } catch (Throwable t) {
+                            // Throwable: runIn -> Action.perform is arbitrary user code, and an
+                            // Error from it is still a failed action. Caught as Exception it
+                            // skipped both lines below while the finally still ended the span, so
+                            // a perform that died was exported looking successful.
+                            performSpan.setStatus(StatusCode.ERROR, t.getMessage());
+                            performSpan.recordException(t);
+                            throw t;
                         } finally {
                             performSpan.end();
                         }
@@ -191,12 +196,15 @@ public class ActionExecutor {
                     Duration.between(startTime, clock.instant()).toMillis(),
                     principalName);
             return result;
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // An Error killing an action must still be reported. Caught as Exception it skipped the
+            // outcome attribute, the span status, the recorded exception AND the error log, leaving
+            // no trace anywhere that the action had failed.
             actionSpan.setAttribute("ekbatan.action.outcome", "error");
-            actionSpan.setStatus(StatusCode.ERROR, e.getMessage());
-            actionSpan.recordException(e);
-            LOG.error("{} failed: {}: {}", actionName, e.getClass().getSimpleName(), e.getMessage());
-            throw e;
+            actionSpan.setStatus(StatusCode.ERROR, t.getMessage());
+            actionSpan.recordException(t);
+            LOG.error("{} failed: {}: {}", actionName, t.getClass().getSimpleName(), t.getMessage());
+            throw t;
         } finally {
             actionSpan.end();
         }
@@ -233,25 +241,51 @@ public class ActionExecutor {
             }
 
             var actionEventId = java.util.UUID.randomUUID();
+            var committedShards = new ArrayList<ShardIdentifier>();
 
             for (var entry : changesByShard.entrySet()) {
                 var shard = entry.getKey();
                 var shardChanges = entry.getValue();
-                databaseRegistry.transactionManager(shard).inTransactionChecked(_ -> {
-                    changePersister.persist(
-                            namespace,
-                            action.getClass().getSimpleName(),
-                            params,
-                            actionStartDate,
-                            shardChanges,
-                            shard,
-                            actionEventId);
-                });
+                try {
+                    databaseRegistry.transactionManager(shard).inTransactionChecked(_ -> {
+                        changePersister.persist(
+                                namespace,
+                                action.getClass().getSimpleName(),
+                                params,
+                                actionStartDate,
+                                shardChanges,
+                                shard,
+                                actionEventId);
+                    });
+                    committedShards.add(shard);
+                } catch (Throwable t) {
+                    // The most consequential of these: this is the partial-commit alarm. A
+                    // cross-shard action that commits shard A and fails on shard B does NOT roll
+                    // back automatically, and this log plus its span attributes are the only
+                    // notice anyone gets. Caught as Exception, an Error on shard B produced
+                    // partially-committed data in silence.
+                    if (!committedShards.isEmpty()) {
+                        LOG.error(
+                                "CRITICAL: Cross-shard action {} PARTIALLY COMMITTED! "
+                                        + "Committed shards: {}, Failed shard: {}. Error: {}: {}. "
+                                        + "Data on committed shards remains persisted and will NOT roll back automatically.",
+                                action.getClass().getSimpleName(),
+                                committedShards,
+                                shard,
+                                t.getClass().getSimpleName(),
+                                t.getMessage(),
+                                t);
+                        persistSpan.setAttribute("ekbatan.shard.partial_commit_failure", true);
+                        persistSpan.setAttribute("ekbatan.shard.committed_shards", committedShards.toString());
+                        persistSpan.setAttribute("ekbatan.shard.failed_shard", shard.toString());
+                    }
+                    throw t;
+                }
             }
-        } catch (Exception e) {
-            persistSpan.setStatus(StatusCode.ERROR, e.getMessage());
-            persistSpan.recordException(e);
-            throw e;
+        } catch (Throwable t) {
+            persistSpan.setStatus(StatusCode.ERROR, t.getMessage());
+            persistSpan.recordException(t);
+            throw t;
         } finally {
             persistSpan.end();
         }

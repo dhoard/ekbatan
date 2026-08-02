@@ -24,6 +24,7 @@ public interface KeyedLockProvider {
 
 - `acquire(key, maxHold)` — blocking. Waits indefinitely until acquired (or thread interrupt). The lease auto-releases when `maxHold` elapses, regardless of whether the holder closed it.
 - `tryAcquire(key, maxWait, maxHold)` — bounded-wait. Returns `Optional.empty()` if the wait times out.
+- A **backend failure** (SQL error, dropped connection, server error response) raises `LockAcquisitionException`. Contention never does: a lock held by somebody else is `Optional.empty()` from `tryAcquire`, and simply more waiting in `acquire`.
 - `key` is a `String`. **Namespace it per type** when locking on entity IDs (e.g. `"wallet:" + walletId`) so two unrelated ID spaces never collide.
 - Closing the lease releases the lock. Use `try-with-resources`.
 
@@ -129,13 +130,25 @@ This contract is enforced by a shared internal helper, `KeyedReentrantHolder`, w
 
 | Provider | Scope | Backend | Hold | Notes |
 |---|---|---|---|---|
-| `InProcessKeyedLockProvider` | single JVM | per-key fair `Semaphore` | watchdog | FIFO. No JDBC connection consumed. |
 | `PostgresKeyedLockProvider` | cross-JVM | `pg_advisory_lock` (session-scoped) | session + watchdog | Auto-released if the session terminates (process crash, network drop). Borrows a connection per lease. |
 | `MariaDBKeyedLockProvider` | cross-JVM | `GET_LOCK(...)` | session + watchdog | MariaDB 12.x rejects negative timeout — `Integer.MAX_VALUE` (≈68 years) is the wait-forever sentinel. |
 | `MySQLKeyedLockProvider` | cross-JVM | `GET_LOCK(...)` | session + watchdog | Sub-second `maxWait` rounds up to whole seconds (MySQL precision limit). |
 | `RedisKeyedLockProvider` | cross-JVM | Redisson `RLock` | TTL + watchdog | Sub-millisecond hand-off. Lives in `ekbatan-keyed-lock-redis`. Single-master only — **not** Redlock-based. |
 
 All five honor the same reentrancy contract via `KeyedReentrantHolder`. The Redis variant explicitly disables Redisson's own watchdog (passes `maxHold` as Redisson `leaseTime`) and uses a local virtual-thread watchdog so the framework's first-call-wins semantics win over Redisson's last-call-wins default.
+
+### How the SQL backends wait
+
+`RedisKeyedLockProvider` blocks on a primitive that responds to `Thread.interrupt()` directly. The three SQL providers can't: a single unbounded `pg_advisory_lock` / `GET_LOCK` call parks the thread inside a JDBC socket read, which no interrupt can break. So they wait in **5-second segments** and check for interruption between them.
+
+Two consequences worth knowing:
+
+- **Interrupt latency is up to 5 seconds.** Well inside typical 30-second graceful-shutdown budgets, but not instant.
+- **Fairness is weaker under contention.** During each segment the waiter is genuinely queued inside the database, so hand-off from a releasing holder is immediate — this is not client-side spinning. But every new segment re-enters that queue at the *back*, so a long-waiting thread repeatedly yields position to newer arrivals. No provider promises FIFO - treat ordering as best-effort, and prefer optimistic locking if you're contending hard enough for this to matter.
+
+A useful side effect: because the connection now sends traffic every 5 seconds, idle-connection reapers (NAT gateways, load balancers, PgBouncer) no longer silently drop a long lock wait — previously a 30-minute wait sent zero packets and looked exactly like an abandoned connection.
+
+**Known limitation.** A network partition that lands *inside* a segment still parks the caller in a blocking socket read, and no client-side loop can bound that. This isn't lock-specific — any long-running JDBC call has the same exposure — so it's left to deployment configuration. Set `socketTimeout` in the lock pool's JDBC URL if you need a hard bound.
 
 ### Wiring up a backend
 
@@ -159,7 +172,7 @@ var lockProvider = redisKeyedLockProvider()
         .build();
 ```
 
-The same builder shape works for `MariaDBKeyedLockProvider`, `MySQLKeyedLockProvider`, and `InProcessKeyedLockProvider`.
+The same builder shape works for `MariaDBKeyedLockProvider` and `MySQLKeyedLockProvider`.
 
 ## Dedicated pool via the `lock-config` / `lockConfig` slot
 
