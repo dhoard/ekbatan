@@ -13,7 +13,7 @@ repositories {
 }
 
 // The runtime jar's META-INF/quarkus-extension.properties points at the Maven coordinate
-// io.ekbatan:ekbatan-di-quarkus-deployment:1.0.0-RC1. The actual artifact lives at the
+// io.github.ekbatan-io:ekbatan-quarkus-deployment:1.0.1. The actual artifact lives at the
 // in-build subproject :ekbatan-di:quarkus:deployment whose implicit publication name is
 // "deployment" — those don't match, so Gradle's automatic project substitution can't bridge
 // them. Map them explicitly. With this rule, the Quarkus Gradle plugin's specialized deployment
@@ -45,10 +45,10 @@ dependencies {
     // `:di:shared`'s full transitive graph as-is — these excludes are scoped to the Quarkus
     // consumer only.
     implementation(project(":ekbatan-integration-tests-di-shared")) {
-        exclude(group = "io.github.zyraz-io", module = "ekbatan-core")
-        exclude(group = "io.github.zyraz-io", module = "ekbatan-di-annotations")
-        exclude(group = "io.github.zyraz-io", module = "ekbatan-events-local-event-handler")
-        exclude(group = "io.github.zyraz-io", module = "ekbatan-distributed-jobs")
+        exclude(group = "io.github.ekbatan-io", module = "ekbatan-core")
+        exclude(group = "io.github.ekbatan-io", module = "ekbatan-di-annotations")
+        exclude(group = "io.github.ekbatan-io", module = "ekbatan-events-local-event-handler")
+        exclude(group = "io.github.ekbatan-io", module = "ekbatan-distributed-jobs")
     }
     // All Ekbatan internal modules + jOOQ + Jackson + JDBC etc. come transitively via this
     // jar's `api()` graph (the extension is the single source of truth for those deps; the

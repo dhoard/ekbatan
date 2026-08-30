@@ -11,11 +11,11 @@ For the equivalent in plain Java with no DI container, see [wiring/without-di.md
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.zyraz-io:ekbatan-quarkus:<version>")
+    implementation("io.github.ekbatan-io:ekbatan-quarkus:<version>")
 }
 ```
 
-(Published on Maven Central under groupId `io.github.zyraz-io`. Java packages stay `io.ekbatan.*` — they don't need to match the Maven groupId.)
+(Published on Maven Central under groupId `io.github.ekbatan-io`. Java packages stay `io.ekbatan.*` — they don't need to match the Maven groupId.)
 
 That one runtime artifact transitively pulls in `ekbatan-core`, `ekbatan-events:local-event-handler`, `ekbatan-distributed-jobs`, and the `@Ekbatan*` annotation jar. Quarkus resolves the matching deployment module automatically at build time. Add `ekbatan-flyway` for `FlywayMigrator`, and add `ekbatan-keyed-lock-redis` separately if you want the Redis-backed lock provider.
 
@@ -304,7 +304,7 @@ Keep `quarkus-flyway` on the classpath for Flyway/Quarkus/native-image integrati
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("io.github.zyraz-io:ekbatan-flyway:1.0.0-RC1")
+    implementation("io.github.ekbatan-io:ekbatan-flyway:1.0.1")
 
     // Quarkus integration for Flyway and native-image support.
     implementation("io.quarkus:quarkus-flyway")
@@ -320,9 +320,9 @@ dependencies {
 ```xml
 <!-- pom.xml -->
 <dependency>
-    <groupId>io.github.zyraz-io</groupId>
+    <groupId>io.github.ekbatan-io</groupId>
     <artifactId>ekbatan-flyway</artifactId>
-    <version>1.0.0-RC1</version>
+    <version>1.0.1</version>
 </dependency>
 <dependency>
     <groupId>io.quarkus</groupId>
@@ -419,11 +419,13 @@ For broader native-image considerations, see [docs/runtime/native-image.md](../r
 Same `ekbatan.namespace` / `ekbatan.local-event-handler.*` / `ekbatan.jobs.*` properties as Spring. Both kebab-case and camelCase keys are accepted; the extension normalizes keys before binding them to Ekbatan's typed config classes. This includes root names (`local-event-handler` / `localEventHandler`), leaf names (`fanout-poll-delay` / `fanoutPollDelay`, `polling-interval` / `pollingInterval`), and shard datasource slots (`jobs-config` / `jobsConfig`, `lock-config` / `lockConfig`). Java lookups through `configFor(...)` must use camelCase: `configFor("jobsConfig")`, `configFor("lockConfig")`.
 
 ```properties
-ekbatan.local-event-handler.fanout-poll-delay=200ms
-ekbatan.local-event-handler.handling-poll-delay=200ms
-ekbatan.jobs.polling-interval=1s
-ekbatan.jobs.shutdown-max-wait=5s
+ekbatan.local-event-handler.fanout-poll-delay=PT0.2S
+ekbatan.local-event-handler.handling-poll-delay=PT0.2S
+ekbatan.jobs.polling-interval=PT1S
+ekbatan.jobs.shutdown-max-wait=PT5S
 ```
+
+> **Durations are ISO-8601.** `PT10S` (10 seconds), `PT0.2S` (200 ms), `PT5M` (5 minutes). Spring Boot's shorthand - `10s`, `200ms` - is **not** accepted: the value is bound by Jackson's `Duration` deserializer, which calls `Duration.parse`, so a shorthand value fails at startup with `Cannot deserialize value of type java.time.Duration`.
 
 ## What's deliberately *not* bridged
 

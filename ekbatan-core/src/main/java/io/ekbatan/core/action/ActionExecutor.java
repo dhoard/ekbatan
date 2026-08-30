@@ -78,7 +78,7 @@ import tools.jackson.databind.ObjectMapper;
 public class ActionExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ActionExecutor.class);
-    private static final Tracer TRACER = GlobalOpenTelemetry.get().getTracer("io.ekbatan.core", "1.0.0");
+    private static final Tracer TRACER = GlobalOpenTelemetry.get().getTracer("io.ekbatan.core", "1.0.1");
 
     private final String namespace;
     private final DatabaseRegistry databaseRegistry;
@@ -92,7 +92,7 @@ public class ActionExecutor {
     private final ExecutionConfiguration defaultExecutionConfiguration;
 
     private ActionExecutor(Builder builder) {
-        this.namespace = Validate.notBlank(builder.namespace, "namespace is required");
+        this.namespace = requireValidNamespace(builder.namespace);
         this.databaseRegistry = Validate.notNull(builder.databaseRegistry, "databaseRegistry is required");
         final var objectMapper = Validate.notNull(builder.objectMapper, "objectMapper is required");
         this.actionRegistry = Validate.notNull(builder.actionRegistry, "actionRegistry is required");
@@ -107,6 +107,40 @@ public class ActionExecutor {
         this.changePersister = new ChangePersister(repositoryRegistry, eventPersister, clock);
         this.defaultExecutionConfiguration =
                 Validate.notNull(builder.defaultExecutionConfiguration, "defaultExecutionConfiguration is required");
+    }
+
+    /**
+     * Dot-separated identifiers, the same shape as a Java package. Anchored, so the whole value
+     * must match rather than merely contain a match.
+     */
+    private static final java.util.regex.Pattern NAMESPACE =
+            java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*");
+
+    /**
+     * The namespace is not free text: it is a naming root, so it has to be spellable everywhere it
+     * is used downstream.
+     *
+     * <p>It reaches Kafka topic names ({@code ekbatan.{namespace}}) and, for binary streaming, the
+     * schema package a payload's {@code .proto} or {@code .avsc} declares. Protobuf's grammar is
+     * {@code ident = letter { letter | decimalDigit | "_" }} - so a hyphen is a syntax error, not a
+     * style preference: {@code package test.local-event-handler;} fails in protoc with
+     * {@code Expected ";"}. Accepting one here would defer that failure to whoever later tried to
+     * write a schema for the events.
+     *
+     * <p>A service name is the natural thing to put here and is conventionally hyphenated, so this
+     * rejects rather than silently rewriting: turning {@code my-svc} into {@code my_svc} would
+     * change the topic name and the value stored on every outbox row without the operator asking.
+     */
+    private static String requireValidNamespace(String namespace) {
+        Validate.notBlank(namespace, "namespace is required");
+        Validate.isTrue(
+                NAMESPACE.matcher(namespace).matches(),
+                "namespace '%s' must be dot-separated identifiers, like a Java package"
+                        + " (letters, digits and underscore; each segment starting with a letter or"
+                        + " underscore). Hyphens are not legal in a protobuf package or Avro namespace,"
+                        + " and the namespace is used as one - write 'my_service' rather than 'my-service'.",
+                namespace);
+        return namespace;
     }
 
     /**

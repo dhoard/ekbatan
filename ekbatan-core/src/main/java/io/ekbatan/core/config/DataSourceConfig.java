@@ -46,9 +46,32 @@ public final class DataSourceConfig {
         this.password = Validate.notNull(builder.password, "password is required");
         this.dialect = resolveDialect(this.jdbcUrl);
         this.driverClassName = builder.driverClassName;
+        // The numeric fields were unchecked while every string beside them was validated, so a
+        // typo here was accepted and surfaced somewhere else entirely. maximumPoolSize = 0 is the
+        // worst of them: Hikari rejects it, but only when the pool is built, and a deployment that
+        // catches startup failures sees a hang on the first query rather than a bad setting.
+        Validate.isTrue(builder.maximumPoolSize >= 1, "maximumPoolSize must be at least 1");
         this.maximumPoolSize = builder.maximumPoolSize;
+        builder.minimumIdle.ifPresent(value -> {
+            Validate.isTrue(value >= 0, "minimumIdle cannot be negative");
+            // Hikari silently clamps a minimumIdle above the maximum instead of complaining, which
+            // leaves the pool sized differently from the configuration that describes it.
+            Validate.isTrue(
+                    value <= builder.maximumPoolSize,
+                    "minimumIdle cannot exceed maximumPoolSize (%s)",
+                    builder.maximumPoolSize);
+        });
         this.minimumIdle = builder.minimumIdle;
+        builder.idleTimeout.ifPresent(value -> Validate.isTrue(value >= 0, "idleTimeout cannot be negative"));
         this.idleTimeout = builder.idleTimeout;
+        // Zero is Hikari's own way of saying "off" and stays valid. Anything between 1 and 1999 is
+        // not: Hikari logs "leakDetectionThreshold is less than 2000ms ... disabling it" and turns
+        // the feature off, so the operator who asked for leak detection does not get it and only a
+        // log line says so. A negative value is disabled just as quietly, without even the line.
+        builder.leakDetectionThreshold.ifPresent(value -> Validate.isTrue(
+                value == 0 || value >= 2_000,
+                "leakDetectionThreshold must be 0 (disabled) or at least 2000 ms; Hikari disables"
+                        + " anything smaller"));
         this.leakDetectionThreshold = builder.leakDetectionThreshold;
     }
 
@@ -153,7 +176,7 @@ public final class DataSourceConfig {
          * @return this builder, for chaining.
          */
         public Builder driverClassName(String driverClassName) {
-            this.driverClassName = Optional.of(driverClassName);
+            this.driverClassName = Optional.of(Validate.notNull(driverClassName, "driverClassName cannot be null"));
             return this;
         }
 
@@ -193,7 +216,13 @@ public final class DataSourceConfig {
         /**
          * Sets the Hikari leak-detection threshold in milliseconds.
          *
-         * @param leakDetectionThreshold the leak-detection threshold in milliseconds.
+         * <p>Pass {@code 0} to switch leak detection off - Hikari's own way of disabling it, and
+         * the only accepted way here. Any other value must be at least {@code 2000}: Hikari
+         * disables anything smaller and says so only in a log line, which reads as "detection is
+         * on" to everyone who does not see it.
+         *
+         * @param leakDetectionThreshold the threshold in milliseconds; {@code 0} to disable, or
+         *     {@code >= 2000}.
          * @return this builder, for chaining.
          */
         public Builder leakDetectionThreshold(long leakDetectionThreshold) {

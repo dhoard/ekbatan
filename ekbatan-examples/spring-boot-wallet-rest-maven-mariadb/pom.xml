@@ -27,7 +27,7 @@
              Override the parent's property so the generated record classes and the runtime jOOQ classpath agree. -->
         <jooq.version>3.20.10</jooq.version>
 
-        <ekbatan.version>1.0.0-RC1</ekbatan.version>
+        <ekbatan.version>1.0.1</ekbatan.version>
         <!-- Hyphenated property names - avoid the `flyway.*` / `jooq.*` namespace, which the
              respective Maven plugins scan and reject for unrecognized keys. -->
         <flyway-version>12.0.0</flyway-version>
@@ -68,17 +68,17 @@
     <dependencies>
         <!-- ── Ekbatan ───────────────────────────────────────────────────────────── -->
         <dependency>
-            <groupId>io.github.zyraz-io</groupId>
+            <groupId>io.github.ekbatan-io</groupId>
             <artifactId>ekbatan-spring-boot-starter</artifactId>
             <version>${ekbatan.version}</version>
         </dependency>
         <dependency>
-            <groupId>io.github.zyraz-io</groupId>
+            <groupId>io.github.ekbatan-io</groupId>
             <artifactId>ekbatan-flyway</artifactId>
             <version>${ekbatan.version}</version>
         </dependency>
         <dependency>
-            <groupId>io.github.zyraz-io</groupId>
+            <groupId>io.github.ekbatan-io</groupId>
             <artifactId>ekbatan-annotation-processor</artifactId>
             <version>${ekbatan.version}</version>
             <scope>provided</scope>
@@ -175,7 +175,7 @@
                     <parameters>true</parameters>
                     <annotationProcessorPaths>
                         <path>
-                            <groupId>io.github.zyraz-io</groupId>
+                            <groupId>io.github.ekbatan-io</groupId>
                             <artifactId>ekbatan-annotation-processor</artifactId>
                             <version>${ekbatan.version}</version>
                         </path>

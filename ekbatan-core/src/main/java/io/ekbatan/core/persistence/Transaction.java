@@ -28,7 +28,17 @@ class Transaction {
 
     public void begin() {
         try {
-            // when we set autoCommit = false, we are implicitly signaling the db that we want a transaction
+            // Nothing is sent to the server here, despite the name. Clearing auto-commit only
+            // records the intent in the driver; pgjdbc defers the BEGIN and sends it attached to
+            // the first statement the transaction actually executes. Same for the MySQL and
+            // MariaDB drivers.
+            //
+            // Harmless as things stand: nothing runs between this call and the caller's first
+            // query, so the BEGIN still precedes every statement that belongs to the transaction.
+            // It stops being harmless the day an isolation level above READ COMMITTED is offered,
+            // because REPEATABLE READ and SERIALIZABLE take their snapshot when the transaction
+            // really starts - the first statement, not this line - and a caller reading rows
+            // "before" opening the transaction would silently see them inside its snapshot.
             connection.setAutoCommit(false);
         } catch (SQLException e) {
             throw new RuntimeException(e);

@@ -67,7 +67,7 @@ public abstract class BaseLocalEventHandlerIntegrationTest {
 
     private ActionExecutor newActionExecutor(Clock clock) {
         return actionExecutor()
-                .namespace("test.local-event-handler")
+                .namespace("test.local_event_handler")
                 .databaseRegistry(databaseRegistry)
                 .objectMapper(objectMapper)
                 .clock(clock)

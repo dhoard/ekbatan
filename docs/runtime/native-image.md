@@ -20,30 +20,30 @@ Ekbatan native-image support is split across your build tool, your framework int
 Add the module to applications that build native binaries:
 
 ```kotlin
-implementation("io.github.zyraz-io:ekbatan-native:1.0.0-RC1")
+implementation("io.github.ekbatan-io:ekbatan-native:1.0.1")
 ```
 
 or Maven:
 
 ```xml
 <dependency>
-  <groupId>io.github.zyraz-io</groupId>
+  <groupId>io.github.ekbatan-io</groupId>
   <artifactId>ekbatan-native</artifactId>
-  <version>1.0.0-RC1</version>
+  <version>1.0.1</version>
 </dependency>
 ```
 
 If your app calls Ekbatan's programmatic Flyway migrator, also add `ekbatan-flyway`:
 
 ```kotlin
-implementation("io.github.zyraz-io:ekbatan-flyway:1.0.0-RC1")
+implementation("io.github.ekbatan-io:ekbatan-flyway:1.0.1")
 ```
 
 ```xml
 <dependency>
-  <groupId>io.github.zyraz-io</groupId>
+  <groupId>io.github.ekbatan-io</groupId>
   <artifactId>ekbatan-flyway</artifactId>
-  <version>1.0.0-RC1</version>
+  <version>1.0.1</version>
 </dependency>
 ```
 

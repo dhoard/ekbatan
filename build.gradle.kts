@@ -40,11 +40,11 @@ allprojects {
     // which `settings.gradle.kts` flattens from the full path. Publishable modules override
     // the published artifactId via `ekbatanPublishing.artifactId` in the publishing plugin.
     //
-    // The Maven groupId (`io.github.zyraz-io`) intentionally differs from the Java package
+    // The Maven groupId (`io.github.ekbatan-io`) intentionally differs from the Java package
     // names in the source tree (`io.ekbatan.*`) — Maven Central's namespace is reverse-DNS of
     // the GitHub org, but Java packages don't need to match the groupId. Many libraries
     // (picocli, lombok, ...) ship this way.
-    group = "io.github.zyraz-io"
+    group = "io.github.ekbatan-io"
 
     repositories {
         mavenCentral()
@@ -130,15 +130,15 @@ jreleaser {
         inceptionYear.set("2026")
         copyright.set("2026 Hossein Bakhtiari Ziabari")
         links {
-            homepage.set("https://github.com/zyraz-io/ekbatan")
+            homepage.set("https://github.com/ekbatan-io/ekbatan")
             license.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
-            documentation.set("https://github.com/zyraz-io/ekbatan#readme")
-            bugTracker.set("https://github.com/zyraz-io/ekbatan/issues")
-            vcsBrowser.set("https://github.com/zyraz-io/ekbatan")
+            documentation.set("https://github.com/ekbatan-io/ekbatan#readme")
+            bugTracker.set("https://github.com/ekbatan-io/ekbatan/issues")
+            vcsBrowser.set("https://github.com/ekbatan-io/ekbatan")
         }
         languages {
             java {
-                groupId.set("io.github.zyraz-io")
+                groupId.set("io.github.ekbatan-io")
                 version.set("25")
                 multiProject.set(true)
             }
@@ -158,7 +158,7 @@ jreleaser {
 
     release {
         github {
-            repoOwner.set("zyraz-io")
+            repoOwner.set("ekbatan-io")
             name.set("ekbatan")
             tagName.set("v{{projectVersion}}")
             releaseName.set("Ekbatan {{projectVersion}}")
@@ -206,7 +206,7 @@ jreleaser {
                     url.set("https://central.sonatype.com/api/v1/publisher")
                     stagingRepository("build/staging-deploy")
                     applyMavenCentralRules.set(true)
-                    namespace.set("io.github.zyraz-io")
+                    namespace.set("io.github.ekbatan-io")
                     // Stage-and-confirm: upload signed artifacts to Sonatype's validation window
                     // and STOP there. Verify on central.sonatype.com → Deployments, then click
                     // Publish (or Drop). Switch to PUBLISH (or FULL) once we trust the pipeline
@@ -216,4 +216,33 @@ jreleaser {
             }
         }
     }
+}
+
+// =====================================================================================
+// Enumerates the modules that compile a native test image, for the Heavy Verification
+// matrix. Derived from the build rather than hardcoded in YAML: a hand-maintained list
+// silently drops a newly added module out of native coverage, which is a worse failure
+// than a slow job - nothing goes red, the module simply stops being verified.
+//
+// Prints one module path per line, without the leading colon so the value is usable as a
+// GitHub Actions artifact-name component.
+// =====================================================================================
+tasks.register("nativeTestModules") {
+    group = "verification"
+    description = "Lists subprojects that have a nativeTest task, one per line."
+    val paths = provider {
+        subprojects
+            .filter { it.plugins.hasPlugin("org.graalvm.buildtools.native") }
+            // The native JUnit launcher cannot compute selectors for these Debezium/Kafka
+            // suites; they run on the JVM instead. Excluded here rather than on the CI
+            // command line so the matrix and the exclusion stay in one place.
+            .filterNot {
+                it.path.startsWith(":ekbatan-integration-tests-event-pipeline-debezium-kafka-json") ||
+                    it.path.startsWith(":ekbatan-integration-tests-event-pipeline-debezium-kafka-avro-smt") ||
+                    it.path.startsWith(":ekbatan-integration-tests-event-pipeline-debezium-kafka-protobuf-smt")
+            }
+            .map { it.path.removePrefix(":") }
+            .sorted()
+    }
+    doLast { paths.get().forEach { println(it) } }
 }
