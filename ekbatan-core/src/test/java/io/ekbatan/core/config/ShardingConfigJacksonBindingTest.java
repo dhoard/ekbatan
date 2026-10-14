@@ -2,8 +2,10 @@ package io.ekbatan.core.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 import io.ekbatan.core.shard.ShardIdentifier;
+import io.ekbatan.core.shard.UnknownShardPolicy;
 import org.jooq.SQLDialect;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.DeserializationFeature;
@@ -41,6 +43,10 @@ class ShardingConfigJacksonBindingTest {
                             password: secret
                             maximumPoolSize: 20
                             minimumIdle: 5
+                            dataSourceProperties:
+                              ApplicationName: orders-service
+                              ha.enableJMX: true
+                              connectTimeout: 10
                           secondaryConfig:
                             jdbcUrl: jdbc:postgresql://replica-eu-1:5432/db
                             username: app
@@ -80,14 +86,21 @@ class ShardingConfigJacksonBindingTest {
 
         var primary = globalMember.primaryConfig();
         assertThat(primary.jdbcUrl).isEqualTo("jdbc:postgresql://primary-eu-1:5432/db");
-        assertThat(primary.username).isEqualTo("app");
-        assertThat(primary.password).isEqualTo("secret");
+        assertThat(primary.username).contains("app");
+        assertThat(primary.password).contains("secret");
         assertThat(primary.maximumPoolSize).isEqualTo(20);
         assertThat(primary.minimumIdle).contains(5);
         assertThat(primary.dialect).isEqualTo(SQLDialect.POSTGRES);
+        // names kept as written, dots included; every value becomes its text
+        assertThat(primary.dataSourceProperties)
+                .containsOnly(
+                        entry("ApplicationName", "orders-service"),
+                        entry("ha.enableJMX", "true"),
+                        entry("connectTimeout", "10"));
 
         assertThat(globalMember.secondaryConfig()).isPresent();
         assertThat(globalMember.secondaryConfig().get().jdbcUrl).isEqualTo("jdbc:postgresql://replica-eu-1:5432/db");
+        assertThat(globalMember.secondaryConfig().get().dataSourceProperties).isEmpty();
 
         var lockConfig = globalMember.configFor("lockConfig");
         assertThat(lockConfig).isPresent();
@@ -166,5 +179,57 @@ class ShardingConfigJacksonBindingTest {
         assertThatThrownBy(() -> MAPPER.readValue(yaml, ShardingConfig.class))
                 .isInstanceOf(MismatchedInputException.class)
                 .hasMessageContaining("memmbers");
+    }
+
+    // -- unknownShardPolicy, the one setting an operator reaches for after a misrouted write ------
+
+    @Test
+    void should_bind_unknown_shard_policy_from_yaml_whatever_the_spelling() {
+        for (var written : new String[] {"fail", "FAIL", "Fail"}) {
+            var config = MAPPER.readValue(minimalYaml("unknownShardPolicy: " + written + "\n"), ShardingConfig.class);
+
+            assertThat(config.unknownShardPolicy)
+                    .describedAs("unknownShardPolicy: %s", written)
+                    .isEqualTo(UnknownShardPolicy.FAIL);
+        }
+        for (var written : new String[] {"useDefaultShard", "use_default_shard", "USE-DEFAULT-SHARD"}) {
+            var config = MAPPER.readValue(minimalYaml("unknownShardPolicy: " + written + "\n"), ShardingConfig.class);
+
+            assertThat(config.unknownShardPolicy)
+                    .describedAs("unknownShardPolicy: %s", written)
+                    .isEqualTo(UnknownShardPolicy.USE_DEFAULT_SHARD);
+        }
+    }
+
+    @Test
+    void should_use_default_shard_when_yaml_omits_the_policy() {
+        var config = MAPPER.readValue(minimalYaml(""), ShardingConfig.class);
+
+        assertThat(config.unknownShardPolicy).isEqualTo(UnknownShardPolicy.USE_DEFAULT_SHARD);
+    }
+
+    @Test
+    void should_refuse_a_policy_value_that_names_neither() {
+        assertThatThrownBy(() -> MAPPER.readValue(minimalYaml("unknownShardPolicy: shrug\n"), ShardingConfig.class))
+                .hasMessageContaining("unknownShardPolicy must be 'useDefaultShard' or 'fail'");
+    }
+
+    private static String minimalYaml(String extra) {
+        return extra + """
+                defaultShard:
+                  group: 0
+                  member: 0
+                groups:
+                  - group: 0
+                    name: global
+                    members:
+                      - member: 0
+                        name: global
+                        configs:
+                          primaryConfig:
+                            jdbcUrl: jdbc:postgresql://primary:5432/db
+                            username: app
+                            password: secret
+                """;
     }
 }

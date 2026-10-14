@@ -20,7 +20,7 @@ Ekbatan native-image support is split across your build tool, your framework int
 Add the module to applications that build native binaries:
 
 ```kotlin
-implementation("io.github.ekbatan-io:ekbatan-native:1.0.1")
+implementation("io.github.ekbatan-io:ekbatan-native:1.1.2")
 ```
 
 or Maven:
@@ -29,21 +29,21 @@ or Maven:
 <dependency>
   <groupId>io.github.ekbatan-io</groupId>
   <artifactId>ekbatan-native</artifactId>
-  <version>1.0.1</version>
+  <version>1.1.2</version>
 </dependency>
 ```
 
 If your app calls Ekbatan's programmatic Flyway migrator, also add `ekbatan-flyway`:
 
 ```kotlin
-implementation("io.github.ekbatan-io:ekbatan-flyway:1.0.1")
+implementation("io.github.ekbatan-io:ekbatan-flyway:1.1.2")
 ```
 
 ```xml
 <dependency>
   <groupId>io.github.ekbatan-io</groupId>
   <artifactId>ekbatan-flyway</artifactId>
-  <version>1.0.1</version>
+  <version>1.1.2</version>
 </dependency>
 ```
 
@@ -125,14 +125,15 @@ Flyway's normal classpath scanner does not always work inside a native image bec
 | Micronaut | The native examples use a small startup migrator that calls `FlywayMigrator.migrate(...)`. They keep `micronaut-flyway` on the classpath for Flyway/native dependencies and hints, but do not use a `flyway:` auto-config block. |
 | Plain Java / raw tests | Use `FlywayMigrator.migrate(...)` directly. |
 
-`FlywayMigrator` is a wrapper around normal Flyway configuration. On the JVM it behaves like inline `Flyway.configure().dataSource(...).locations(...).load().migrate()`. In a native image it installs an internal resource scanner that can walk bundled `classpath:` migrations.
+`FlywayMigrator` runs normal Flyway, with two additions. It connects the way your application's pools do: Flyway gets connections made from the same `DataSourceConfig` (same driver, `driver-class-name` included), each opened for the migration and closed when it ends, never one of the application's pooled connections. And in a native image it installs an internal resource scanner that reads both kinds of location built into Flyway: `classpath:` migrations packed into the binary, and `filesystem:` folders on disk. A kind that a Flyway plugin adds, such as `s3:`, stops the migration with an error rather than being skipped.
 
 ```java
 import io.ekbatan.flyway.FlywayMigrator;
 
-FlywayMigrator.migrate(jdbcUrl, username, password);
-FlywayMigrator.migrate(jdbcUrl, username, password, "classpath:db/migration", "classpath:db/seed");
-FlywayMigrator.migrate(shardingConfig); // runs on every primary shard, sequentially
+FlywayMigrator.migrate(shardingConfig); // every primary shard, sequentially
+FlywayMigrator.migrate(dataSourceConfig); // one datasource
+FlywayMigrator.migrate(dataSourceConfig, "classpath:db/migration", "classpath:db/seed");
+FlywayMigrator.migrate(jdbcUrl, username, password); // the same, from the three values
 ```
 
 ## Build and test commands
@@ -148,7 +149,7 @@ The exact command depends on the stack:
 | Micronaut Gradle | `./gradlew nativeCompile` | `./gradlew nativeTest` |
 | Micronaut Maven | `./mvnw -Dpackaging=native-image -DskipTests package` | Native tests are not enabled in the Maven Micronaut examples. |
 
-Ekbatan's Heavy Verification workflow runs JVM tests plus native builds/tests for the examples. The root Gradle native sweep uses:
+Ekbatan's Heavy Verification workflow runs JVM tests plus native builds/tests for the examples. The examples use Ekbatan built from the same commit, not a release from Maven Central. The root Gradle native sweep uses:
 
 ```bash
 ./gradlew nativeTest --parallel --max-workers=4 --continue --stacktrace
